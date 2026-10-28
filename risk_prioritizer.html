@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Supply Chain Risk Prioritizer</title>
+<style>
+:root{--bg:#fafaf8;--card:#fff;--tx:#1d1d1b;--mut:#6b6b66;--bd:#dcdcd5;--ac:#c2410c;--ac2:#0f766e;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1a1a18;--card:#242422;--tx:#ececE6;--mut:#a0a09a;--bd:#3a3a36;--ac:#fb923c;--ac2:#2dd4bf}}
+:root[data-theme="dark"]{--bg:#1a1a18;--card:#242422;--tx:#ececE6;--mut:#a0a09a;--bd:#3a3a36;--ac:#fb923c;--ac2:#2dd4bf}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;padding:16px;max-width:900px;margin-inline:auto}
+h1{font-size:20px;margin:0 0 4px}h2{font-size:16px;margin:24px 0 8px}
+p.s{color:var(--mut);margin:0 0 12px;font-size:13px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:12px}
+.sc{overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:480px}
+th,td{padding:6px;text-align:left;border-bottom:1px solid var(--bd);font-size:14px;white-space:nowrap}
+th{color:var(--mut);font-weight:600;font-size:12px}
+select,input[type=text]{background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:5px;font:inherit;max-width:100%}
+input[type=text]{width:150px}
+button{background:var(--ac);color:#fff;border:0;border-radius:6px;padding:7px 12px;font:inherit;cursor:pointer;margin:8px 6px 0 0}
+button.g{background:transparent;color:var(--mut);border:1px solid var(--bd)}
+button.x{background:transparent;color:var(--mut);padding:2px 8px;margin:0;font-size:16px}
+.bar{height:8px;border-radius:4px;background:var(--ac);min-width:2px}
+.bar.v{background:var(--ac2)}
+.sm{font-size:13px;color:var(--mut);margin-top:10px}
+.ch{color:var(--ac)}
+</style>
+</head>
+<body>
+<h1>Supply Chain Risk Prioritizer</h1>
+<p class="s">Rate each risk on each criterion (higher = riskier). Results update live using fuzzy TOPSIS and VIKOR.</p>
+
+<h2>1. Criteria importance</h2>
+<div class="card sc"><table id="wt"></table></div>
+
+<h2>2. Risk ratings</h2>
+<div class="card sc"><table id="mx"></table></div>
+<button id="add">+ Add risk</button><button class="g" id="reset">Reset sample</button>
+
+<h2>3. Ranking</h2>
+<div class="card sc"><table id="out"></table></div>
+<div class="sm" id="sp"></div>
+<p class="sm">Scale: VL, L, M, H, VH as triangular fuzzy numbers. TOPSIS uses the vertex distance to (1,1,1) and (0,0,0), with closeness coefficient CC (higher = higher priority). VIKOR uses defuzzified values with v = 0.5; Q is lower for higher priority. A large rank gap between methods means the ranking depends on method choice, so report both.</p>
+
+<script>
+const R={VL:[0,0,.25],L:[0,.25,.5],M:[.25,.5,.75],H:[.5,.75,1],VH:[.75,1,1]},T=Object.keys(R);
+const SAMPLE=()=>({crit:["Probability","Severity","Detectability","Recovery time"],w:["M","VH","H","H"],
+risks:[["Supplier failure","M","VH","M","H"],["Port congestion","H","M","L","M"],["Demand volatility","H","H","M","M"],
+["Cyberattack","L","VH","H","H"],["Natural disaster","VL","VH","M","VH"],["Machine breakdown","H","M","L","L"]].map(a=>({n:a[0],r:a.slice(1)}))});
+let S=SAMPLE();
+const sel=(v,at)=>`<select ${at}>${T.map(t=>`<option${t===v?" selected":""}>${t}</option>`).join("")}</select>`;
+function draw(){
+ document.getElementById("wt").innerHTML="<tr>"+S.crit.map((c,j)=>`<th><input type="text" value="${c}" data-c="${j}"></th>`).join("")+"</tr><tr>"+S.w.map((v,j)=>`<td>${sel(v,`data-w="${j}"`)}</td>`).join("")+"</tr>";
+ document.getElementById("mx").innerHTML="<tr><th>Risk</th>"+S.crit.map(c=>`<th>${c}</th>`).join("")+"<th></th></tr>"+
+  S.risks.map((k,i)=>`<tr><td><input type="text" value="${k.n}" data-n="${i}"></td>`+k.r.map((v,j)=>`<td>${sel(v,`data-i="${i}" data-j="${j}"`)}</td>`).join("")+`<td><button class="x" data-d="${i}">×</button></td></tr>`).join("");
+ calc();
+}
+const rank=a=>{const o=a.map((v,i)=>[v,i]).sort((x,y)=>y[0]-x[0]),r=[];o.forEach((p,k)=>r[p[1]]=k+1);return r};
+const crisp=f=>(f[0]+2*f[1]+f[2])/4;
+function calc(){
+ const n=S.risks.length,m=S.crit.length;
+ if(n<2){document.getElementById("out").innerHTML="<tr><td>Add at least two risks.</td></tr>";document.getElementById("sp").textContent="";return}
+ const X=S.risks.map(k=>k.r.map(t=>R[t])),W=S.w.map(t=>R[t]);
+ const cs=S.crit.map((_,j)=>Math.max(...X.map(x=>x[j][2]))||1);
+ const cc=X.map(x=>{let dp=0,dm=0;x.forEach((f,j)=>{const v=f.map((z,k)=>z/cs[j]*W[j][k]);
+  dp+=Math.sqrt(v.reduce((s,z)=>s+(z-1)**2,0)/3);dm+=Math.sqrt(v.reduce((s,z)=>s+z*z,0)/3)});return dm/(dp+dm||1)});
+ const wc=W.map(crisp),ws=wc.reduce((a,b)=>a+b,0)||1,w=wc.map(z=>z/ws);
+ const C=X.map(x=>x.map(crisp)),fs=S.crit.map((_,j)=>Math.max(...C.map(c=>c[j]))),fm=S.crit.map((_,j)=>Math.min(...C.map(c=>c[j])));
+ const Sv=C.map(c=>c.reduce((s,z,j)=>s+w[j]*(fs[j]-z)/((fs[j]-fm[j])||1),0)),Rv=C.map(c=>Math.max(...c.map((z,j)=>w[j]*(fs[j]-z)/((fs[j]-fm[j])||1))));
+ const rg=(a)=>[Math.min(...a),Math.max(...a)],[s0,s1]=rg(Sv),[r0,r1]=rg(Rv);
+ const Q=Sv.map((s,i)=>.5*(s-s0)/((s1-s0)||1)+.5*(Rv[i]-r0)/((r1-r0)||1));
+ const rt=rank(cc),rv=rank(Q.map(q=>-q)),ord=rt.map((r,i)=>[r,i]).sort((a,b)=>a[0]-b[0]).map(a=>a[1]);
+ const mx=Math.max(...cc)||1;
+ document.getElementById("out").innerHTML="<tr><th>Risk</th><th>TOPSIS</th><th>CC</th><th>VIKOR</th><th>Q</th><th>Gap</th></tr>"+
+  ord.map(i=>{const g=Math.abs(rt[i]-rv[i]);return `<tr><td>${S.risks[i].n}</td><td>#${rt[i]}</td><td><div class="bar" style="width:${Math.round(cc[i]/mx*90)}px"></div>${cc[i].toFixed(3)}</td><td>#${rv[i]}</td><td>${Q[i].toFixed(3)}</td><td class="${g>1?"ch":""}">${g}</td></tr>`}).join("");
+ const d=rt.reduce((s,r,i)=>s+(r-rv[i])**2,0),rho=n>2?1-6*d/(n*(n*n-1)):NaN;
+ document.getElementById("sp").textContent="Spearman correlation between TOPSIS and VIKOR rankings: "+(isNaN(rho)?"n/a":rho.toFixed(3));
+}
+document.addEventListener("change",e=>{const d=e.target.dataset;
+ if(d.w!==undefined)S.w[d.w]=e.target.value;
+ else if(d.i!==undefined)S.risks[d.i].r[d.j]=e.target.value;
+ else if(d.n!==undefined){S.risks[d.n].n=e.target.value;}
+ else if(d.c!==undefined){S.crit[d.c]=e.target.value;draw();return}
+ calc()});
+document.addEventListener("click",e=>{const d=e.target.dataset;
+ if(d.d!==undefined){S.risks.splice(d.d,1);draw()}
+ if(e.target.id==="add"){S.risks.push({n:"New risk",r:S.crit.map(()=>"M")});draw()}
+ if(e.target.id==="reset"){S=SAMPLE();draw()}});
+draw();
+</script>
+</body>
+</html>
